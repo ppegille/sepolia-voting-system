@@ -1,6 +1,6 @@
 # Sepolia Voting System
 
-Phase 1 initializes the project foundation for the Ethereum Sepolia voting MVP.
+Project foundation for the Ethereum Sepolia voting MVP.
 
 ## Stack
 
@@ -65,3 +65,7 @@ npm run worker:deploy
 The Worker declares a KV binding named `VOTING_METADATA` in `workers/api/wrangler.jsonc`.
 
 KV is for offchain metadata only. Vote counts and duplicate vote prevention must be handled by the Sepolia smart contract.
+
+## Contract Interface
+
+Phase 2 fixes the frontend-consumable contract interface in `src/contracts/voting-contract.ts` and documents the decisions in `docs/phase-2.md`.
