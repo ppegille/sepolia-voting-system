@@ -69,3 +69,9 @@ KV is for offchain metadata only. Vote counts and duplicate vote prevention must
 ## Contract Interface
 
 Phase 2 fixes the frontend-consumable contract interface in `src/contracts/voting-contract.ts` and documents the decisions in `docs/phase-2.md`.
+
+## KV Metadata API
+
+Phase 3 implements Workers KV metadata records and CRUD-capable Worker API routes in `workers/api/src/metadata.ts` and `workers/api/src/index.ts`.
+
+The key design, record shapes, route list, validation rules, and token storage boundary are documented in `docs/phase-3.md`.
