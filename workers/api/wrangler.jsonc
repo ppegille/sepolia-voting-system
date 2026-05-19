@@ -1,0 +1,19 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "sepolia-voting-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-19",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "FRONTEND_ORIGINS": "http://localhost:3000,https://sepolia-voting-system.pages.dev"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "VOTING_METADATA",
+      "id": "dd96af40f1a6435cbac184d5905ce27d",
+      "preview_id": "7739fbf61f5f4ce585fd67a4b4f5befd"
+    }
+  ]
+}

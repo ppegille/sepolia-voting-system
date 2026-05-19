@@ -5,15 +5,26 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
+    "pages:preview": "npm run build && wrangler pages dev out --compatibility-date=2026-05-19",
+    "pages:deploy": "npm run build && wrangler pages deploy out --project-name sepolia-voting-system",
+    "worker:dev": "wrangler dev --config workers/api/wrangler.jsonc",
+    "worker:deploy": "wrangler deploy --config workers/api/wrangler.jsonc",
+    "typecheck": "tsc --noEmit && tsc -p workers/api/tsconfig.json --noEmit",
+    "lint": "eslint",
+    "test": "vitest run",
+    "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "next": "16.2.6",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
+  "overrides": {
+    "postcss": "^8.5.14",
+    "ws": "^8.20.1"
+  },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260519.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
@@ -21,6 +32,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.6",
+    "wrangler": "^4.92.0"
   }
 }

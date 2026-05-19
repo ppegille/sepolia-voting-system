@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Sepolia Voting System
+
+Phase 1 initializes the project foundation for the Ethereum Sepolia voting MVP.
+
+## Stack
+
+- Frontend: Next.js App Router, TypeScript, Tailwind CSS
+- Frontend hosting: Cloudflare Pages static output
+- API: Cloudflare Workers
+- Offchain metadata: Cloudflare Workers KV through `VOTING_METADATA`
+- Onchain voting: Sepolia smart contract in later phases
 
 ## Getting Started
 
-First, run the development server:
+Run the frontend development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) with your browser.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Run the Worker API locally:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run worker:dev
+```
 
-## Learn More
+Verify the project:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run verify
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Cloudflare Pages
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The frontend is configured with `output: "export"`. `npm run build` emits static output into `out` for Cloudflare Pages.
 
-## Deploy on Vercel
+```bash
+npm run build
+npm run pages:preview
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Deploy after local verification:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run pages:deploy
+```
+
+The Cloudflare Pages project is `sepolia-voting-system`. It will be available at `https://sepolia-voting-system.pages.dev/` after the first deployment.
+The latest deployment URL is `https://8b311d69.sepolia-voting-system.pages.dev/`.
+
+## Cloudflare Worker
+
+The Worker API is configured in `workers/api/wrangler.jsonc`.
+The deployed Worker URL is `https://sepolia-voting-api.hadoo6487.workers.dev/`.
+
+```bash
+npm run worker:dev
+npm run worker:deploy
+```
+
+## Worker KV Binding
+
+The Worker declares a KV binding named `VOTING_METADATA` in `workers/api/wrangler.jsonc`.
+
+KV is for offchain metadata only. Vote counts and duplicate vote prevention must be handled by the Sepolia smart contract.
