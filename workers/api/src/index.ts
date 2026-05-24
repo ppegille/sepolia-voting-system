@@ -12,6 +12,7 @@ import {
   type CreateCandidateInput,
   type CreateElectionInput,
   type CreateInviteInput,
+  type CreateVoteRecordInput,
   type UpdateCandidateInput,
   type UpdateElectionInput,
 } from "./metadata";
@@ -20,6 +21,7 @@ export interface Env {
   VOTING_METADATA: KVNamespace;
   FRONTEND_ORIGINS?: string;
   ADMIN_SIGNATURE_REQUIRED?: string;
+  OPERATOR_WALLET_ADDRESSES?: string;
 }
 
 type ApiPayload = {
@@ -231,6 +233,23 @@ const requireAdminAction = (
   env: Env,
   actorWalletAddress: `0x${string}`,
 ) => requireAdminSignature(request, env, actorWalletAddress, "");
+
+const getOperatorWalletAddresses = (env: Env) =>
+  env.OPERATOR_WALLET_ADDRESSES?.split(",")
+    .map((walletAddress) => walletAddress.trim().toLowerCase())
+    .filter(Boolean) ?? [];
+
+const requireOperatorAction = async (request: Request, env: Env) => {
+  const actorWalletAddress = getActorWalletAddress(request);
+  await requireAdminAction(request, env, actorWalletAddress);
+
+  const operators = getOperatorWalletAddresses(env);
+  if (operators.length > 0 && !operators.includes(actorWalletAddress)) {
+    throw new MetadataError("Actor wallet is not an operator", 403);
+  }
+
+  return actorWalletAddress;
+};
 
 const routeSegments = (url: URL) =>
   url.pathname
@@ -493,9 +512,49 @@ export const handleRequest = async (
 
     if (segments[0] === "audit-logs" && segments.length === 1) {
       if (request.method === "GET") {
+        await requireOperatorAction(request, env);
+
         return jsonResponse(allowedOrigin, {
           ok: true,
-          data: await store.listAuditLogs(),
+          data: (await store.listAuditLogs()).slice(0, 50),
+        });
+      }
+    }
+
+    if (segments[0] === "vote-records" && segments.length === 1) {
+      if (request.method === "POST") {
+        const body = await readJsonBody(request);
+
+        return jsonResponse(
+          allowedOrigin,
+          {
+            ok: true,
+            data: await store.recordVoteTransaction(body as CreateVoteRecordInput),
+          },
+          201,
+        );
+      }
+
+      if (request.method === "GET") {
+        await requireOperatorAction(request, env);
+
+        return jsonResponse(allowedOrigin, {
+          ok: true,
+          data: await store.listVoteRecords({
+            electionId: url.searchParams.get("electionId") ?? undefined,
+            status: url.searchParams.get("status") ?? undefined,
+          }),
+        });
+      }
+    }
+
+    if (segments[0] === "operations" && segments[1] === "summary" && segments.length === 2) {
+      if (request.method === "GET") {
+        await requireOperatorAction(request, env);
+
+        return jsonResponse(allowedOrigin, {
+          ok: true,
+          data: await store.getOperationsSummary(),
         });
       }
     }

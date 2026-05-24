@@ -112,3 +112,15 @@ The page validates invite tokens through the Worker API, loads candidate display
 Phase 8 implements result and verification pages at `/results?electionId=<bytes32>` and `/verify?electionId=<bytes32>`.
 
 The pages load display metadata from KV, read vote counts and status from the configured Sepolia contract, map candidates by `candidateId`, and link to Sepolia explorer records. Details are documented in `docs/phase-8.md`.
+
+## Operations Dashboard
+
+Phase 9 implements the operator view at `/admin`.
+
+The dashboard uses signed MetaMask requests to load all KV election metadata, recent AuditLog entries, and best-effort vote transaction records, including failed transaction states. Details are documented in `docs/phase-9.md`.
+
+## Testing and Security
+
+Phase 10 adds regression coverage for duplicate voting, voting period limits, and KV/onchain data boundaries.
+
+The tests verify that the smart contract remains authoritative for vote counts and duplicate-vote prevention while Workers KV stays limited to metadata, invite hashes, AuditLog records, and transaction telemetry. Details are documented in `docs/phase-10.md`.

@@ -36,6 +36,9 @@ const SECOND_METADATA_HASH = createCandidateMetadataHash({
   photoUrl: "https://example.com/bob.png",
 });
 const NEXT_ADMIN_WALLET = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const VOTER_WALLET = "0xcccccccccccccccccccccccccccccccccccccccc";
+const TRANSACTION_HASH =
+  "0x9999999999999999999999999999999999999999999999999999999999999999";
 const SIGNING_ADMIN = privateKeyToAccount(
   "0x0000000000000000000000000000000000000000000000000000000000000001",
 );
@@ -324,7 +327,9 @@ describe("sepolia voting api", () => {
     expect(response.status).toBe(200);
 
     const logsResponse = await handleRequest(
-      new Request("https://api.example.test/audit-logs"),
+      new Request("https://api.example.test/audit-logs", {
+        headers: { "X-Actor-Wallet": ADMIN_WALLET },
+      }),
       env,
     );
     const logs = await readPayload<{
@@ -567,6 +572,16 @@ describe("sepolia voting api", () => {
       }),
       env,
     );
+    await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
 
     const response = await handleRequest(
       new Request(`https://api.example.test/elections/${ELECTION_ID}`, {
@@ -584,7 +599,10 @@ describe("sepolia voting api", () => {
           key.startsWith("candidate-index:") ||
           key.startsWith("invite:") ||
           key.startsWith("invite-index:") ||
-          key.startsWith("invite-token:"),
+          key.startsWith("invite-token:") ||
+          key.startsWith("vote-record:") ||
+          key.startsWith("vote-record-index:") ||
+          key.startsWith("vote-record-transaction:"),
       ),
     ).toEqual([]);
   });
@@ -766,7 +784,12 @@ describe("sepolia voting api", () => {
       ok: true;
       data: { action: string; actorWalletAddress: string }[];
     }>(
-      await handleRequest(new Request("https://api.example.test/audit-logs"), env),
+      await handleRequest(
+        new Request("https://api.example.test/audit-logs", {
+          headers: { "X-Actor-Wallet": ADMIN_WALLET },
+        }),
+        env,
+      ),
     );
     expect(
       logs.data.find((log) => log.action === "invite.create")?.actorWalletAddress,
@@ -856,6 +879,273 @@ describe("sepolia voting api", () => {
       "invite.create",
     ]);
     expect(JSON.stringify(logs)).not.toContain(token);
+  });
+
+  it("records vote transaction states and updates records by transaction hash", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+
+    const submittedResponse = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+    const submitted = await readPayload<{
+      ok: true;
+      data: { recordId: string; status: string };
+    }>(submittedResponse);
+
+    expect(submittedResponse.status).toBe(201);
+    expect(submitted.data.status).toBe("submitted");
+
+    const successResponse = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "success",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+    const success = await readPayload<{
+      ok: true;
+      data: { recordId: string; status: string };
+    }>(successResponse);
+
+    expect(success.data.recordId).toBe(submitted.data.recordId);
+    expect(success.data.status).toBe("success");
+  });
+
+  it("rejects vote transaction records that do not match KV election boundaries", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+
+    const missingCandidateResponse = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+    expect(missingCandidateResponse.status).toBe(404);
+
+    const missingElectionResponse = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+    expect(missingElectionResponse.status).toBe(404);
+  });
+
+  it("prevents one transaction hash from being attached to another vote record", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+    await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+
+    const response = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: NEXT_ADMIN_WALLET,
+      }),
+      env,
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "transactionHash is already recorded for another vote",
+    });
+    expect(response.status).toBe(409);
+  });
+
+  it("lists failed vote records in the protected operations summary", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+    await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        failureReason: "Vote transaction reverted onchain.",
+        status: "failed",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+
+    const unauthenticatedListResponse = await handleRequest(
+      new Request("https://api.example.test/vote-records?status=failed"),
+      env,
+    );
+    expect(unauthenticatedListResponse.status).toBe(403);
+
+    const failedListResponse = await handleRequest(
+      new Request("https://api.example.test/vote-records?status=failed", {
+        headers: { "X-Actor-Wallet": ADMIN_WALLET },
+      }),
+      env,
+    );
+    const failedList = await readPayload<{
+      ok: true;
+      data: { status: string; transactionHash: string }[];
+    }>(failedListResponse);
+
+    expect(failedList.data).toMatchObject([
+      { status: "failed", transactionHash: TRANSACTION_HASH },
+    ]);
+
+    const response = await handleRequest(
+      new Request("https://api.example.test/operations/summary", {
+        headers: { "X-Actor-Wallet": ADMIN_WALLET },
+      }),
+      env,
+    );
+    const summary = await readPayload<{
+      ok: true;
+      data: {
+        elections: { failedVoteCount: number; candidateCount: number }[];
+        failedVoteRecords: { failureReason: string; status: string }[];
+        auditLogs: { action: string; metadata: Record<string, unknown> }[];
+      };
+    }>(response);
+
+    expect(response.status).toBe(200);
+    expect(summary.data.elections[0]).toMatchObject({
+      candidateCount: 1,
+      failedVoteCount: 1,
+    });
+    expect(summary.data.failedVoteRecords[0]).toMatchObject({
+      failureReason: "Vote transaction reverted onchain.",
+      status: "failed",
+    });
+    expect(JSON.stringify(summary.data.auditLogs)).not.toContain(
+      "Vote transaction reverted onchain.",
+    );
+  });
+
+  it("requires an allowed operator wallet for protected log views when configured", async () => {
+    const env = {
+      ...createEnv(),
+      OPERATOR_WALLET_ADDRESSES: NEXT_ADMIN_WALLET,
+    } satisfies Env;
+    const response = await handleRequest(
+      new Request("https://api.example.test/audit-logs", {
+        headers: { "X-Actor-Wallet": ADMIN_WALLET },
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(403);
+  });
+
+  it("caps direct audit log reads to recent operational entries", async () => {
+    const kv = new MemoryKV();
+    const env = {
+      ...createEnv(),
+      VOTING_METADATA: kv as unknown as KVNamespace,
+    } satisfies Env;
+    const store = new MetadataStore(kv as unknown as KVNamespace);
+
+    await Promise.all(
+      Array.from({ length: 55 }, (_, index) =>
+        store.recordAuditLog({
+          action: `test.${index}`,
+          actorWalletAddress: ADMIN_WALLET,
+          metadata: { index },
+          targetId: ELECTION_ID,
+          targetType: "election",
+        }),
+      ),
+    );
+
+    const response = await handleRequest(
+      new Request("https://api.example.test/audit-logs", {
+        headers: { "X-Actor-Wallet": ADMIN_WALLET },
+      }),
+      env,
+    );
+    const logs = await readPayload<{ ok: true; data: unknown[] }>(response);
+
+    expect(logs.data).toHaveLength(50);
+  });
+
+  it("rejects vote transaction records without transaction hashes", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+
+    const response = await handleRequest(
+      requestJson("/vote-records", "POST", {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "failed",
+        voterWalletAddress: VOTER_WALLET,
+      }),
+      env,
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "transactionHash is required for vote records",
+    });
+    expect(response.status).toBe(400);
   });
 
   it("fixes the canonical candidate metadata payload for future keccak hashing", () => {

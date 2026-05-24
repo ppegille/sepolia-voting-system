@@ -11,6 +11,7 @@ export default function Home() {
     "Admin election package creation",
     "Invite-based voting page",
     "Onchain result lookup",
+    "Operator logs and failed transaction view",
   ];
 
   return (
@@ -18,15 +19,15 @@ export default function Home() {
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-10 sm:px-10 lg:py-16">
         <div className="rounded-[2rem] border border-cyan-300/20 bg-cyan-300/10 p-6 shadow-2xl shadow-cyan-950/40 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.4em] text-cyan-200">
-            Phase 8 result verification
+            Phase 9 operations view
           </p>
           <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">
             Sepolia voting system administration gateway
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
             The MVP can now create election metadata, accept invite-based
-            voting, and show current or final vote counts directly from the
-            Sepolia voting contract.
+            voting, show onchain results, and monitor operational logs with
+            failed transaction records.
           </p>
         </div>
 
@@ -59,6 +60,20 @@ export default function Home() {
           <p className="mt-2 text-sm leading-6 text-slate-300">
             Result links use `/results?electionId=&lt;bytes32&gt;`; verification
             links use `/verify?electionId=&lt;bytes32&gt;`.
+          </p>
+        </a>
+
+        <a
+          className="rounded-3xl border border-fuchsia-300/20 bg-fuchsia-300/10 p-6 transition hover:border-fuchsia-200/50"
+          href="/admin"
+        >
+          <p className="text-sm font-semibold uppercase tracking-[0.35em] text-fuchsia-100">
+            Operations
+          </p>
+          <h2 className="mt-3 text-2xl font-black text-white">Open admin logs</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            Operator views use signed MetaMask requests to list all elections,
+            recent AuditLog entries, and failed vote transaction records.
           </p>
         </a>
 

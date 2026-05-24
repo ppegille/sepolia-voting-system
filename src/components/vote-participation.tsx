@@ -4,12 +4,15 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 
 import type { CandidateRecord } from "../admin/admin-api";
+import type { Hex32 } from "../contracts/voting-contract";
 import {
   getElectionTimeStatus,
   isVoteCandidateThresholdMet,
   loadVoteInvitePackage,
+  recordVoteTransaction,
   type ElectionTimeStatus,
   type VoteInvitePackage,
+  type VoteTransactionStatus,
 } from "../vote/voting-api";
 import {
   getVoteErrorMessage,
@@ -260,34 +263,58 @@ export function VoteParticipation() {
     setError(null);
     setTransactionState({ kind: "signing" });
 
+    let transactionHash: Hex32 | undefined;
+
+    const recordVoteState = async (
+      status: VoteTransactionStatus,
+      failureReason?: string,
+    ) => {
+      await recordVoteTransaction({
+        candidateId: selectedCandidate.candidateId,
+        electionId: votePackage.election.electionId,
+        ...(failureReason ? { failureReason } : {}),
+        status,
+        ...(transactionHash ? { transactionHash } : {}),
+        voterWalletAddress: wallet.address,
+      }).catch(() => undefined);
+    };
+
     try {
-      const hash = await sendVoteTransaction(provider, {
+      transactionHash = await sendVoteTransaction(provider, {
         candidateId: selectedCandidate.candidateId,
         contractAddress,
         electionId: votePackage.election.electionId,
         voterAddress: wallet.address,
       });
-      setTransactionState({ hash, kind: "submitted" });
+      setTransactionState({ hash: transactionHash, kind: "submitted" });
+      await recordVoteState("submitted");
 
-      const receipt = await waitForTransactionReceipt(provider, hash);
+      const receipt = await waitForTransactionReceipt(provider, transactionHash);
 
       if (receipt.status === "0x0") {
         setTransactionState({
           error: "Vote transaction reverted onchain.",
-          hash,
+          hash: transactionHash,
           kind: "failed",
         });
+        await recordVoteState("failed", "Vote transaction reverted onchain.");
         return;
       }
 
-      setTransactionState({ hash, kind: "success" });
+      setTransactionState({ hash: transactionHash, kind: "success" });
+      await recordVoteState("success");
       setHasVoted(true);
       await refreshOnchainState(provider, wallet);
     } catch (nextError) {
+      const failureReason = getVoteErrorMessage(nextError);
       setTransactionState({
-        error: getVoteErrorMessage(nextError),
+        error: failureReason,
+        ...(transactionHash ? { hash: transactionHash } : {}),
         kind: "failed",
       });
+      if (transactionHash) {
+        await recordVoteState("failed", failureReason);
+      }
     } finally {
       setIsBusy(false);
     }

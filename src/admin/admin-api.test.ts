@@ -6,6 +6,7 @@ import {
   createCandidateMetadataHash,
   createInviteShareUrl,
   isReadyForInvite,
+  loadOperationsSummary,
 } from "./admin-api";
 import { ADMIN_SIGNATURE_MESSAGE_PREFIX } from "./admin-auth";
 
@@ -99,5 +100,38 @@ describe("admin api helpers", () => {
     expect(signedMessage).toContain("BodyHash: 0x");
     expect(headers["X-Actor-Message"]).toBe(encodeURIComponent(signedMessage));
     expect(headers["X-Actor-Signature"]).toBe("0x1234");
+  });
+
+  it("signs operational read requests with an empty body hash", async () => {
+    let capturedInit: RequestInit | undefined;
+    const signer = vi.fn(async (message: string) => {
+      expect(message).toContain(ADMIN_SIGNATURE_MESSAGE_PREFIX);
+
+      return "0x1234" as `0x${string}`;
+    });
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedInit = init;
+
+      return Response.json({
+        ok: true,
+        data: { auditLogs: [], elections: [], failedVoteRecords: [] },
+      });
+    }) as typeof fetch;
+
+    await loadOperationsSummary(
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      signer,
+      fetcher,
+    );
+
+    const signedMessage = signer.mock.calls[0]?.[0] ?? "";
+    const headers = capturedInit?.headers as Record<string, string>;
+
+    expect(signedMessage).toContain("Method: GET");
+    expect(signedMessage).toContain("Path: /operations/summary");
+    expect(signedMessage).toContain(
+      "BodyHash: 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+    );
+    expect(headers["X-Actor-Message"]).toBe(encodeURIComponent(signedMessage));
   });
 });

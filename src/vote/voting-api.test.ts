@@ -4,6 +4,7 @@ import {
   getElectionTimeStatus,
   isVoteCandidateThresholdMet,
   loadVoteInvitePackage,
+  recordVoteTransaction,
   validateInviteToken,
   VoteApiError,
 } from "./voting-api";
@@ -14,6 +15,8 @@ const CANDIDATE_ID =
   "0x2222222222222222222222222222222222222222222222222222222222222222";
 const SECOND_CANDIDATE_ID =
   "0x3333333333333333333333333333333333333333333333333333333333333333";
+const TRANSACTION_HASH =
+  "0x9999999999999999999999999999999999999999999999999999999999999999";
 
 const election = {
   adminWalletAddress: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
@@ -92,6 +95,49 @@ describe("voting api helpers", () => {
     }) as typeof fetch;
 
     await expect(validateInviteToken(" ", fetcher)).rejects.toThrow(VoteApiError);
+  });
+
+  it("records vote transaction status without invite tokens", async () => {
+    let capturedBody: string | undefined;
+    const fetcher = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      capturedBody = String(init?.body);
+
+      return Response.json({
+        ok: true,
+        data: {
+          candidateId: CANDIDATE_ID,
+          createdAt: "2099-01-01T00:00:00.000Z",
+          electionId: ELECTION_ID,
+          recordId:
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          status: "submitted",
+          transactionHash: TRANSACTION_HASH,
+          updatedAt: "2099-01-01T00:00:00.000Z",
+          voterWalletAddress: "0xcccccccccccccccccccccccccccccccccccccccc",
+        },
+      });
+    }) as typeof fetch;
+
+    await recordVoteTransaction(
+      {
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: "0xcccccccccccccccccccccccccccccccccccccccc",
+      },
+      fetcher,
+    );
+
+    expect(capturedBody).toBe(
+      JSON.stringify({
+        candidateId: CANDIDATE_ID,
+        electionId: ELECTION_ID,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+        voterWalletAddress: "0xcccccccccccccccccccccccccccccccccccccccc",
+      }),
+    );
   });
 
   it("classifies local election time status", () => {

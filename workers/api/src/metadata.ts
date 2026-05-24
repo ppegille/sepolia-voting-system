@@ -19,6 +19,7 @@ export type ElectionMetadataStatus =
   | "archived";
 
 export type InviteStatus = "active" | "expired" | "disabled";
+export type VoteTransactionStatus = "submitted" | "success" | "failed";
 
 export type AuditTargetType = "election" | "candidate" | "invite" | "vote";
 
@@ -67,6 +68,35 @@ export type AuditLogRecord = Readonly<{
   createdAt: string;
 }>;
 
+export type VoteRecord = Readonly<{
+  recordId: Hex32;
+  electionId: ElectionId;
+  candidateId: CandidateId;
+  voterWalletAddress: `0x${string}`;
+  transactionHash?: Hex32;
+  status: VoteTransactionStatus;
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type OperationElectionSummary = Readonly<{
+  election: ElectionRecord;
+  candidateCount: number;
+  inviteCount: number;
+  voteRecordCount: number;
+  submittedVoteCount: number;
+  successfulVoteCount: number;
+  failedVoteCount: number;
+  lastVoteRecordAt?: string;
+}>;
+
+export type OperationsSummary = Readonly<{
+  elections: OperationElectionSummary[];
+  failedVoteRecords: VoteRecord[];
+  auditLogs: AuditLogRecord[];
+}>;
+
 export type CreateElectionInput = Readonly<{
   electionId?: string;
   title: string;
@@ -100,6 +130,15 @@ export type CreateInviteInput = Readonly<{
 export type CreateInviteResult = Readonly<{
   invite: InviteRecord;
   token: string;
+}>;
+
+export type CreateVoteRecordInput = Readonly<{
+  electionId: string;
+  candidateId: string;
+  voterWalletAddress: string;
+  transactionHash?: string;
+  status: string;
+  failureReason?: string;
 }>;
 
 export class MetadataError extends Error {
@@ -167,6 +206,11 @@ export const KV_KEYS = {
   inviteIndex: (electionId: string, createdAt: string, inviteId: string) =>
     `invite-index:${electionId}:${createdAt}:${inviteId}`,
   inviteToken: (tokenHash: string) => `invite-token:${tokenHash}`,
+  voteRecord: (recordId: string) => `vote-record:${recordId}`,
+  voteRecordIndex: (electionId: string, createdAt: string, recordId: string) =>
+    `vote-record-index:${electionId}:${createdAt}:${recordId}`,
+  voteRecordTransaction: (transactionHash: string) =>
+    `vote-record-transaction:${transactionHash}`,
 } as const;
 
 const isRecord = (value: unknown): value is JsonObject =>
@@ -283,6 +327,29 @@ const normalizeElectionStatus = (value: unknown) => {
 
   throw new MetadataError("status is invalid");
 };
+
+const normalizeVoteTransactionStatus = (value: unknown) => {
+  if (value === "submitted" || value === "success" || value === "failed") {
+    return value;
+  }
+
+  throw new MetadataError("vote transaction status is invalid");
+};
+
+const normalizeOptionalFailureReason = (value: unknown) => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const reason = requireString(value, "failureReason");
+
+  return reason.slice(0, 240);
+};
+
+const compareCreatedAtDesc = (
+  left: Pick<AuditLogRecord | VoteRecord, "createdAt">,
+  right: Pick<AuditLogRecord | VoteRecord, "createdAt">,
+) => Date.parse(right.createdAt) - Date.parse(left.createdAt);
 
 const getJson = async <T>(kv: KVNamespace, key: string) => {
   const value = await kv.get(key);
@@ -470,6 +537,10 @@ export class MetadataStore {
       `candidate-index:${electionId}:`,
     );
     const inviteIndexKeys = await listKeyNames(this.kv, `invite-index:${electionId}:`);
+    const voteRecordIndexKeys = await listKeyNames(
+      this.kv,
+      `vote-record-index:${electionId}:`,
+    );
 
     await Promise.all(
       candidateIndexKeys.map(async (indexKey) => {
@@ -493,6 +564,25 @@ export class MetadataStore {
             await this.kv.delete(KV_KEYS.inviteToken(invite.tokenHash));
           }
           await this.kv.delete(KV_KEYS.invite(index.inviteId));
+        }
+        await this.kv.delete(indexKey);
+      }),
+    );
+
+    await Promise.all(
+      voteRecordIndexKeys.map(async (indexKey) => {
+        const index = await getJson<{ recordId: string }>(this.kv, indexKey);
+        if (index) {
+          const record = await getJson<VoteRecord>(
+            this.kv,
+            KV_KEYS.voteRecord(index.recordId),
+          );
+          if (record?.transactionHash) {
+            await this.kv.delete(
+              KV_KEYS.voteRecordTransaction(record.transactionHash),
+            );
+          }
+          await this.kv.delete(KV_KEYS.voteRecord(index.recordId));
         }
         await this.kv.delete(indexKey);
       }),
@@ -866,13 +956,182 @@ export class MetadataStore {
     });
   }
 
+  async recordVoteTransaction(input: CreateVoteRecordInput) {
+    const electionId = normalizeHex32(input.electionId, "electionId");
+    const candidateId = normalizeHex32(input.candidateId, "candidateId");
+    await requireElectionRecord(this.kv, electionId);
+    await requireCandidateRecord(this.kv, electionId, candidateId);
+
+    const voterWalletAddress = normalizeAddress(
+      input.voterWalletAddress,
+      "voterWalletAddress",
+    );
+    const transactionHash = normalizeOptionalHex32(
+      input.transactionHash,
+      "transactionHash",
+    );
+    const status = normalizeVoteTransactionStatus(input.status);
+
+    if (!transactionHash) {
+      throw new MetadataError("transactionHash is required for vote records");
+    }
+
+    const now = this.now().toISOString();
+    const failureReason =
+      status === "failed"
+        ? normalizeOptionalFailureReason(input.failureReason)
+        : undefined;
+
+    const existingIndex = await getJson<{ recordId: string }>(
+      this.kv,
+      KV_KEYS.voteRecordTransaction(transactionHash),
+    );
+
+    if (existingIndex) {
+      const current = await getJson<VoteRecord>(
+        this.kv,
+        KV_KEYS.voteRecord(existingIndex.recordId),
+      );
+
+      if (current) {
+        if (
+          current.electionId !== electionId ||
+          current.candidateId !== candidateId ||
+          current.voterWalletAddress !== voterWalletAddress
+        ) {
+          throw new MetadataError(
+            "transactionHash is already recorded for another vote",
+            409,
+          );
+        }
+
+        const updated: VoteRecord = {
+          ...current,
+          failureReason,
+          status,
+          updatedAt: now,
+        };
+
+        await putJson(this.kv, KV_KEYS.voteRecord(updated.recordId), updated);
+        await this.recordAuditLog({
+          actorWalletAddress: voterWalletAddress,
+          action: `vote.${status}`,
+          targetType: "vote",
+          targetId: updated.recordId,
+          metadata: { candidateId, electionId, transactionHash },
+        });
+
+        return updated;
+      }
+    }
+
+    const recordId = generateHex32();
+    const record: VoteRecord = {
+      recordId,
+      electionId,
+      candidateId,
+      voterWalletAddress,
+      transactionHash,
+      status,
+      ...(failureReason ? { failureReason } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await putJson(this.kv, KV_KEYS.voteRecord(recordId), record);
+    await putJson(this.kv, KV_KEYS.voteRecordIndex(electionId, now, recordId), {
+      recordId,
+    });
+    await putJson(this.kv, KV_KEYS.voteRecordTransaction(transactionHash), {
+      recordId,
+    });
+    await this.recordAuditLog({
+      actorWalletAddress: voterWalletAddress,
+      action: `vote.${status}`,
+      targetType: "vote",
+      targetId: recordId,
+      metadata: { candidateId, electionId, transactionHash },
+    });
+
+    return record;
+  }
+
+  async listVoteRecords(filters: {
+    electionId?: string;
+    status?: string;
+  } = {}) {
+    const electionId = filters.electionId
+      ? normalizeHex32(filters.electionId, "electionId")
+      : undefined;
+    const status = filters.status
+      ? normalizeVoteTransactionStatus(filters.status)
+      : undefined;
+    const keys = await listKeyNames(
+      this.kv,
+      electionId ? `vote-record-index:${electionId}:` : "vote-record-index:",
+    );
+    const records = await Promise.all(
+      keys.map(async (key) => {
+        const index = await getJson<{ recordId: string }>(this.kv, key);
+
+        return index ? getJson<VoteRecord>(this.kv, KV_KEYS.voteRecord(index.recordId)) : null;
+      }),
+    );
+
+    return records
+      .filter((record): record is VoteRecord => record !== null)
+      .filter((record) => !status || record.status === status)
+      .sort(compareCreatedAtDesc);
+  }
+
   async listAuditLogs() {
     const keys = await listKeyNames(this.kv, "audit-log:");
     const logs = await Promise.all(
       keys.map((key) => getJson<AuditLogRecord>(this.kv, key)),
     );
 
-    return logs.filter((log): log is AuditLogRecord => log !== null);
+    return logs
+      .filter((log): log is AuditLogRecord => log !== null)
+      .sort(compareCreatedAtDesc);
+  }
+
+  async getOperationsSummary() {
+    const [elections, failedVoteRecords, auditLogs] = await Promise.all([
+      this.listElections(),
+      this.listVoteRecords({ status: "failed" }),
+      this.listAuditLogs(),
+    ]);
+    const summaries = await Promise.all(
+      elections.map(async (election) => {
+        const [candidates, invites, voteRecords] = await Promise.all([
+          this.listCandidates(election.electionId),
+          this.listInvites(election.electionId),
+          this.listVoteRecords({ electionId: election.electionId }),
+        ]);
+
+        return {
+          election,
+          candidateCount: candidates.length,
+          inviteCount: invites.length,
+          voteRecordCount: voteRecords.length,
+          submittedVoteCount: voteRecords.filter(
+            (record) => record.status === "submitted",
+          ).length,
+          successfulVoteCount: voteRecords.filter(
+            (record) => record.status === "success",
+          ).length,
+          failedVoteCount: voteRecords.filter((record) => record.status === "failed")
+            .length,
+          ...(voteRecords[0] ? { lastVoteRecordAt: voteRecords[0].createdAt } : {}),
+        } satisfies OperationElectionSummary;
+      }),
+    );
+
+    return {
+      elections: summaries,
+      failedVoteRecords: failedVoteRecords.slice(0, 50),
+      auditLogs: auditLogs.slice(0, 50),
+    } satisfies OperationsSummary;
   }
 
   async recordAuditLog(input: Omit<AuditLogRecord, "createdAt" | "logId">) {

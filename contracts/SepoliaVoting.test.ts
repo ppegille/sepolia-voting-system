@@ -9,6 +9,8 @@ const CANDIDATE_ID =
   "0x2222222222222222222222222222222222222222222222222222222222222222";
 const SECOND_CANDIDATE_ID =
   "0x3333333333333333333333333333333333333333333333333333333333333333";
+const SECOND_ELECTION_ID =
+  "0x4444444444444444444444444444444444444444444444444444444444444444";
 const METADATA_HASH =
   "0x693137639d1d0d15faea7701e93d66956a6d837befb43a005df14b53c0cb1c69";
 const SECOND_METADATA_HASH =
@@ -177,6 +179,39 @@ describe("SepoliaVoting", () => {
     ).rejects.toThrow(/InsufficientCandidates/);
   });
 
+  it("enforces the exact active window without mutating rejected vote counts", async () => {
+    const { endAt, otherVoter, startAt, voter, voting } =
+      await createElectionWithCandidates();
+
+    await expect(voting.read.getElectionStatus([ELECTION_ID])).resolves.toBe(1);
+    await expect(
+      voting.write.vote([ELECTION_ID, CANDIDATE_ID], { account: voter.account }),
+    ).rejects.toThrow(/VotingNotActive/);
+    await expect(
+      voting.read.getCandidateVotes([ELECTION_ID, CANDIDATE_ID]),
+    ).resolves.toBe(BigInt(0));
+
+    await networkHelpers.time.increaseTo(startAt);
+    await expect(voting.read.getElectionStatus([ELECTION_ID])).resolves.toBe(2);
+    await voting.write.vote([ELECTION_ID, CANDIDATE_ID], {
+      account: voter.account,
+    });
+    await expect(
+      voting.read.getCandidateVotes([ELECTION_ID, CANDIDATE_ID]),
+    ).resolves.toBe(BigInt(1));
+
+    await networkHelpers.time.increaseTo(endAt);
+    await expect(voting.read.getElectionStatus([ELECTION_ID])).resolves.toBe(3);
+    await expect(
+      voting.write.vote([ELECTION_ID, SECOND_CANDIDATE_ID], {
+        account: otherVoter.account,
+      }),
+    ).rejects.toThrow(/VotingNotActive/);
+    await expect(
+      voting.read.getCandidateVotes([ELECTION_ID, SECOND_CANDIDATE_ID]),
+    ).resolves.toBe(BigInt(0));
+  });
+
   it("casts one vote per wallet and exposes result reads", async () => {
     const { otherVoter, startAt, voter, voting } = await createElectionWithCandidates();
 
@@ -209,6 +244,48 @@ describe("SepoliaVoting", () => {
       { candidateId: CANDIDATE_ID, votes: BigInt(1) },
       { candidateId: SECOND_CANDIDATE_ID, votes: BigInt(1) },
     ]);
+  });
+
+  it("scopes one-wallet-one-vote to each election ID", async () => {
+    const { admin, endAt, startAt, voter, voting } = await createElectionWithCandidates();
+
+    await voting.write.createElection([
+      SECOND_ELECTION_ID,
+      startAt,
+      endAt,
+      admin.account.address,
+    ]);
+    await voting.write.registerCandidate([
+      SECOND_ELECTION_ID,
+      CANDIDATE_ID,
+      METADATA_HASH,
+    ]);
+    await voting.write.registerCandidate([
+      SECOND_ELECTION_ID,
+      SECOND_CANDIDATE_ID,
+      SECOND_METADATA_HASH,
+    ]);
+    await networkHelpers.time.increaseTo(startAt);
+
+    await voting.write.vote([ELECTION_ID, CANDIDATE_ID], {
+      account: voter.account,
+    });
+    await voting.write.vote([SECOND_ELECTION_ID, SECOND_CANDIDATE_ID], {
+      account: voter.account,
+    });
+
+    await expect(
+      voting.read.hasVoted([ELECTION_ID, voter.account.address]),
+    ).resolves.toBe(true);
+    await expect(
+      voting.read.hasVoted([SECOND_ELECTION_ID, voter.account.address]),
+    ).resolves.toBe(true);
+    await expect(
+      voting.read.getCandidateVotes([ELECTION_ID, CANDIDATE_ID]),
+    ).resolves.toBe(BigInt(1));
+    await expect(
+      voting.read.getCandidateVotes([SECOND_ELECTION_ID, SECOND_CANDIDATE_ID]),
+    ).resolves.toBe(BigInt(1));
   });
 
   it("rejects unknown candidates and votes after end", async () => {

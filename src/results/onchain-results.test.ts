@@ -151,6 +151,28 @@ describe("onchain result helpers", () => {
     ]);
   });
 
+  it("keeps onchain vote counts recoverable when KV metadata is unavailable", () => {
+    const rows = mergeResultRows([], {
+      candidateIds: [CANDIDATE_ID, SECOND_CANDIDATE_ID],
+      results: [
+        { candidateId: CANDIDATE_ID, votes: BigInt(7) },
+        { candidateId: SECOND_CANDIDATE_ID, votes: BigInt(4) },
+      ],
+    });
+    const summary = summarizeResults(rows);
+
+    expect(rows).toMatchObject([
+      { candidateId: CANDIDATE_ID, metadataStatus: "missing_kv_metadata", votes: BigInt(7) },
+      {
+        candidateId: SECOND_CANDIDATE_ID,
+        metadataStatus: "missing_kv_metadata",
+        votes: BigInt(4),
+      },
+    ]);
+    expect(summary.totalVotes).toBe(BigInt(11));
+    expect(summary.winners.map((row) => row.candidateId)).toEqual([CANDIDATE_ID]);
+  });
+
   it("formats verification labels and Sepolia explorer URLs", () => {
     expect(getElectionStatusLabel(ELECTION_STATUS.NotCreated)).toBe("Not created");
     expect(getElectionStatusLabel(ELECTION_STATUS.Pending)).toBe("Pending");

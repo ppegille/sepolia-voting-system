@@ -3,7 +3,9 @@ import {
   type CandidateRecord,
   type ElectionRecord,
   type InviteRecord,
+  type VoteRecord,
 } from "../admin/admin-api";
+import { assertAddress, assertHex32 } from "../contracts/voting-contract";
 
 type ApiSuccess<T> = Readonly<{ ok: true; data: T }>;
 type ApiFailure = Readonly<{ ok: false; error: string }>;
@@ -21,6 +23,16 @@ export type VoteInvitePackage = Readonly<{
 }>;
 
 export type ElectionTimeStatus = "not_started" | "active" | "ended";
+export type VoteTransactionStatus = "submitted" | "success" | "failed";
+
+export type VoteTransactionRecordInput = Readonly<{
+  electionId: string;
+  candidateId: string;
+  voterWalletAddress: string;
+  status: VoteTransactionStatus;
+  transactionHash?: string;
+  failureReason?: string;
+}>;
 
 export class VoteApiError extends Error {
   readonly status: number;
@@ -91,6 +103,28 @@ export const loadVoteInvitePackage = async (
     ),
   } satisfies VoteInvitePackage;
 };
+
+export const recordVoteTransaction = async (
+  input: VoteTransactionRecordInput,
+  fetcher: typeof fetch = fetch,
+) =>
+  postJson<VoteRecord>(
+    "/vote-records",
+    {
+      candidateId: assertHex32(input.candidateId, "candidateId"),
+      electionId: assertHex32(input.electionId, "electionId"),
+      ...(input.failureReason ? { failureReason: input.failureReason } : {}),
+      status: input.status,
+      ...(input.transactionHash
+        ? { transactionHash: assertHex32(input.transactionHash, "transactionHash") }
+        : {}),
+      voterWalletAddress: assertAddress(
+        input.voterWalletAddress.toLowerCase(),
+        "voterWalletAddress",
+      ),
+    },
+    fetcher,
+  );
 
 export const getElectionTimeStatus = (
   election: Pick<ElectionRecord, "endAt" | "startAt">,

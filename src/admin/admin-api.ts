@@ -60,6 +60,45 @@ export type InviteRecord = Readonly<{
   updatedAt: string;
 }>;
 
+export type VoteRecord = Readonly<{
+  recordId: Hex32;
+  electionId: Hex32;
+  candidateId: Hex32;
+  voterWalletAddress: `0x${string}`;
+  transactionHash?: Hex32;
+  status: "submitted" | "success" | "failed";
+  failureReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type AuditLogRecord = Readonly<{
+  logId: Hex32;
+  actorWalletAddress: `0x${string}`;
+  action: string;
+  targetType: "election" | "candidate" | "invite" | "vote";
+  targetId: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}>;
+
+export type OperationElectionSummary = Readonly<{
+  election: ElectionRecord;
+  candidateCount: number;
+  inviteCount: number;
+  voteRecordCount: number;
+  submittedVoteCount: number;
+  successfulVoteCount: number;
+  failedVoteCount: number;
+  lastVoteRecordAt?: string;
+}>;
+
+export type OperationsSummary = Readonly<{
+  elections: OperationElectionSummary[];
+  failedVoteRecords: VoteRecord[];
+  auditLogs: AuditLogRecord[];
+}>;
+
 export type CreateInviteResponse = Readonly<{
   invite: InviteRecord;
   token: string;
@@ -142,11 +181,12 @@ const parseJsonResponse = async <T>(response: Response) => {
 const requestJson = async <T>(
   path: string,
   actorWalletAddress: `0x${string}`,
-  init: RequestInit & { body: string; method: string },
+  init: RequestInit & { body?: string; method: string },
   fetcher: typeof fetch,
   signer: AdminRequestSigner,
 ) => {
-  const bodyHash = hashAdminRequestBody(init.body);
+  const body = init.body ?? "";
+  const bodyHash = hashAdminRequestBody(body);
   const message = createAdminSignatureMessage({
     actorWalletAddress,
     bodyHash,
@@ -265,6 +305,25 @@ export const createInvite = async (
       body,
       method: "POST",
     },
+    fetcher,
+    signer,
+  );
+};
+
+export const loadOperationsSummary = async (
+  operatorWalletAddressValue: string,
+  signer: AdminRequestSigner,
+  fetcher: typeof fetch = fetch,
+) => {
+  const operatorWalletAddress = assertAddress(
+    operatorWalletAddressValue.toLowerCase(),
+    "operatorWalletAddress",
+  );
+
+  return requestJson<OperationsSummary>(
+    "/operations/summary",
+    operatorWalletAddress,
+    { method: "GET" },
     fetcher,
     signer,
   );
