@@ -417,6 +417,22 @@ export function VoteParticipation() {
                   </p>
                 ) : null}
               </div>
+              <div className="mt-4 grid gap-3">
+                <a
+                  className="rounded-full border border-white/20 px-5 py-3 text-center text-sm font-bold text-white transition hover:bg-white/10"
+                  href={`/results?electionId=${votePackage.election.electionId}`}
+                >
+                  View current results
+                </a>
+                {transactionState.kind === "success" ? (
+                  <a
+                    className="rounded-full border border-white/20 px-5 py-3 text-center text-sm font-bold text-white transition hover:bg-white/10"
+                    href={`/verify?electionId=${votePackage.election.electionId}&tx=${transactionState.hash}`}
+                  >
+                    Verify this vote onchain
+                  </a>
+                ) : null}
+              </div>
             </div>
           </aside>
         </div>

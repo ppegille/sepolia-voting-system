@@ -106,3 +106,9 @@ The contract supports election creation, admin-only candidate registration, one-
 Phase 7 implements the invite-based voter page at `/vote?invite=<token>`.
 
 The page validates invite tokens through the Worker API, loads candidate display metadata from KV, checks wallet readiness, and submits `vote(electionId, candidateId)` through MetaMask when `NEXT_PUBLIC_VOTING_CONTRACT_ADDRESS` is configured. Details are documented in `docs/phase-7.md`.
+
+## Result Lookup
+
+Phase 8 implements result and verification pages at `/results?electionId=<bytes32>` and `/verify?electionId=<bytes32>`.
+
+The pages load display metadata from KV, read vote counts and status from the configured Sepolia contract, map candidates by `candidateId`, and link to Sepolia explorer records. Details are documented in `docs/phase-8.md`.
