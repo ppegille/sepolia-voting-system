@@ -191,3 +191,20 @@ export const switchToSepolia = async (provider: EthereumProvider) => {
     });
   }
 };
+
+export const signAdminMessage = async (
+  provider: EthereumProvider,
+  address: `0x${string}`,
+  message: string,
+) => {
+  const signature = await provider.request({
+    method: "personal_sign",
+    params: [message, address],
+  });
+
+  if (typeof signature !== "string" || !/^0x[0-9a-fA-F]+$/.test(signature)) {
+    throw new Error("MetaMask returned an invalid admin signature");
+  }
+
+  return signature as `0x${string}`;
+};

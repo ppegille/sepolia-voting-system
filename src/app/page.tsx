@@ -1,3 +1,4 @@
+import { AdminDashboard } from "../components/admin-dashboard";
 import { WalletStatus } from "../components/wallet-status";
 
 export default function Home() {
@@ -7,6 +8,7 @@ export default function Home() {
     "Cloudflare Workers API scaffold",
     "Workers KV metadata binding",
     "MetaMask Sepolia wallet readiness",
+    "Admin election package creation",
   ];
 
   return (
@@ -14,19 +16,21 @@ export default function Home() {
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-10 sm:px-10 lg:py-16">
         <div className="rounded-[2rem] border border-cyan-300/20 bg-cyan-300/10 p-6 shadow-2xl shadow-cyan-950/40 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.4em] text-cyan-200">
-            Phase 4 wallet connection
+            Phase 5 administrator flow
           </p>
           <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">
-            Sepolia voting system wallet gateway
+            Sepolia voting system administration gateway
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-            The MVP now checks MetaMask availability, wallet connection,
-            Sepolia network readiness, and Sepolia ETH balance before later
-            phases add administrator and voting transactions.
+            The MVP can now connect an administrator wallet, create election
+            metadata, register candidates, and generate invite links before
+            later phases add onchain transactions.
           </p>
         </div>
 
         <WalletStatus />
+
+        <AdminDashboard />
 
         <div className="grid gap-4 md:grid-cols-2">
           {setupItems.map((item) => (

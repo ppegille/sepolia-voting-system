@@ -7,6 +7,7 @@ import {
   type ElectionId,
   type Hex32,
 } from "../../../src/contracts/voting-contract";
+import { createCandidateMetadataHash } from "../../../src/admin/candidate-metadata";
 
 type JsonObject = Record<string, unknown>;
 
@@ -532,12 +533,20 @@ export class MetadataStore {
     }
 
     const createdAt = this.now().toISOString();
+    const name = requireString(input.name, "name");
+    const photoUrl = requireUrl(input.photoUrl, "photoUrl");
+    const metadataHash = normalizeHex32(input.metadataHash, "metadataHash");
+
+    if (metadataHash !== createCandidateMetadataHash({ name, photoUrl })) {
+      throw new MetadataError("metadataHash does not match candidate metadata");
+    }
+
     const candidate: CandidateRecord = {
       candidateId,
       electionId,
-      name: requireString(input.name, "name"),
-      photoUrl: requireUrl(input.photoUrl, "photoUrl"),
-      metadataHash: normalizeHex32(input.metadataHash, "metadataHash"),
+      name,
+      photoUrl,
+      metadataHash,
       displayOrder:
         input.displayOrder === undefined
           ? (await this.listCandidates(electionId)).length
@@ -621,6 +630,17 @@ export class MetadataStore {
       );
     }
 
+    const nextMetadataHash =
+      normalizeOptionalHex32(input.metadataHash, "metadataHash") ??
+      current.metadataHash;
+
+    if (
+      nextMetadataHash !==
+      createCandidateMetadataHash({ name: nextName, photoUrl: nextPhotoUrl })
+    ) {
+      throw new MetadataError("metadataHash does not match candidate metadata");
+    }
+
     const displayOrder =
       input.displayOrder === undefined
         ? current.displayOrder
@@ -629,9 +649,7 @@ export class MetadataStore {
       ...current,
       name: nextName,
       photoUrl: nextPhotoUrl,
-      metadataHash:
-        normalizeOptionalHex32(input.metadataHash, "metadataHash") ??
-        current.metadataHash,
+      metadataHash: nextMetadataHash,
       displayOrder,
       updatedAt: this.now().toISOString(),
     };
@@ -690,6 +708,11 @@ export class MetadataStore {
     const electionId = normalizeHex32(electionIdValue, "electionId");
     const election = await requireElectionRecord(this.kv, electionId);
     const expiresAt = requireIsoDate(input.expiresAt, "expiresAt");
+    const candidates = await this.listCandidates(electionId);
+
+    if (candidates.length < 2) {
+      throw new MetadataError("At least two candidates are required before creating invites", 409);
+    }
 
     if (Date.parse(expiresAt) <= this.now().getTime()) {
       throw new MetadataError("expiresAt must be in the future");

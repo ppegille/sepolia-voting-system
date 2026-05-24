@@ -1,4 +1,9 @@
 import { assertAddress } from "../../../src/contracts/voting-contract";
+import {
+  createAdminSignatureMessage,
+  hashAdminRequestBody,
+} from "../../../src/admin/admin-auth";
+import { verifyMessage } from "viem";
 
 import {
   assertJsonObject,
@@ -14,6 +19,7 @@ import {
 export interface Env {
   VOTING_METADATA: KVNamespace;
   FRONTEND_ORIGINS?: string;
+  ADMIN_SIGNATURE_REQUIRED?: string;
 }
 
 type ApiPayload = {
@@ -63,7 +69,8 @@ const isKvAvailable = (kv: KVNamespace) =>
   typeof kv.list === "function";
 
 const jsonHeaders = (origin: string) => ({
-  "Access-Control-Allow-Headers": "Content-Type, X-Actor-Wallet",
+  "Access-Control-Allow-Headers":
+    "Content-Type, X-Actor-Message, X-Actor-Signature, X-Actor-Wallet",
   "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Origin": origin,
   "Content-Type": "application/json; charset=utf-8",
@@ -84,9 +91,9 @@ const jsonResponse = (origin: string, body: unknown, status = 200) =>
     status,
   });
 
-const readJsonBody = async (request: Request) => {
+const parseJsonBody = (bodyText: string) => {
   try {
-    return assertJsonObject(await request.json());
+    return assertJsonObject(JSON.parse(bodyText));
   } catch (error) {
     if (error instanceof MetadataError) {
       throw error;
@@ -95,6 +102,8 @@ const readJsonBody = async (request: Request) => {
     throw new MetadataError("Request body must be valid JSON");
   }
 };
+
+const readJsonBody = async (request: Request) => parseJsonBody(await request.text());
 
 const getActorWalletAddress = (request: Request) => {
   const actorWalletAddress = request.headers.get("X-Actor-Wallet");
@@ -128,6 +137,100 @@ const requireElectionAdmin = async (
 
   return election;
 };
+
+const ADMIN_SIGNATURE_MAX_AGE_MS = 5 * 60 * 1000;
+const ADMIN_SIGNATURE_MAX_FUTURE_SKEW_MS = 60 * 1000;
+
+const getAdminSignatureIssuedAt = (message: string) => {
+  const issuedAt = message
+    .split("\n")
+    .find((line) => line.startsWith("IssuedAt: "))
+    ?.slice("IssuedAt: ".length);
+  const issuedAtMs = Date.parse(issuedAt ?? "");
+
+  if (!Number.isFinite(issuedAtMs)) {
+    throw new MetadataError("Admin signature message is invalid", 401);
+  }
+
+  const now = Date.now();
+
+  if (
+    issuedAtMs > now + ADMIN_SIGNATURE_MAX_FUTURE_SKEW_MS ||
+    issuedAtMs < now - ADMIN_SIGNATURE_MAX_AGE_MS
+  ) {
+    throw new MetadataError("Admin signature has expired", 401);
+  }
+
+  return new Date(issuedAtMs).toISOString();
+};
+
+const requireAdminSignature = async (
+  request: Request,
+  env: Env,
+  actorWalletAddress: `0x${string}`,
+  bodyText: string,
+) => {
+  if (env.ADMIN_SIGNATURE_REQUIRED === "false") {
+    return;
+  }
+
+  const signature = request.headers.get("X-Actor-Signature");
+  const encodedMessage = request.headers.get("X-Actor-Message");
+
+  if (!signature || !encodedMessage) {
+    throw new MetadataError("Admin signature is required", 401);
+  }
+
+  const message = (() => {
+    try {
+      return decodeURIComponent(encodedMessage);
+    } catch {
+      throw new MetadataError("Admin signature message is invalid", 401);
+    }
+  })();
+
+  const path = new URL(request.url).pathname;
+  const issuedAt = getAdminSignatureIssuedAt(message);
+  const expectedMessage = createAdminSignatureMessage({
+    actorWalletAddress,
+    bodyHash: hashAdminRequestBody(bodyText),
+    issuedAt,
+    method: request.method,
+    path,
+  });
+
+  if (message !== expectedMessage) {
+    throw new MetadataError("Admin signature message is invalid", 401);
+  }
+
+  const verified = await verifyMessage({
+    address: actorWalletAddress,
+    message,
+    signature: signature as `0x${string}`,
+  }).catch(() => false);
+
+  if (!verified) {
+    throw new MetadataError("Admin signature is invalid", 401);
+  }
+};
+
+const readAdminJsonBody = async (
+  request: Request,
+  env: Env,
+  actorWalletAddress: `0x${string}`,
+) => {
+  const bodyText = await request.text();
+
+  await requireAdminSignature(request, env, actorWalletAddress, bodyText);
+
+  return parseJsonBody(bodyText);
+};
+
+const requireAdminAction = (
+  request: Request,
+  env: Env,
+  actorWalletAddress: `0x${string}`,
+) => requireAdminSignature(request, env, actorWalletAddress, "");
 
 const routeSegments = (url: URL) =>
   url.pathname
@@ -164,8 +267,8 @@ export const handleRequest = async (
       }
 
       if (request.method === "POST") {
-        const body = await readJsonBody(request);
         const actorWalletAddress = getActorWalletAddress(request);
+        const body = await readAdminJsonBody(request, env, actorWalletAddress);
         requireMatchingAdmin(actorWalletAddress, body.adminWalletAddress);
 
         return jsonResponse(
@@ -189,6 +292,7 @@ export const handleRequest = async (
 
       if (request.method === "PUT") {
         const actorWalletAddress = getActorWalletAddress(request);
+        const body = await readAdminJsonBody(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -199,7 +303,7 @@ export const handleRequest = async (
           ok: true,
           data: await store.updateElection(
             segments[1],
-            (await readJsonBody(request)) as UpdateElectionInput,
+            body as UpdateElectionInput,
             actorWalletAddress,
           ),
         });
@@ -207,6 +311,7 @@ export const handleRequest = async (
 
       if (request.method === "DELETE") {
         const actorWalletAddress = getActorWalletAddress(request);
+        await requireAdminAction(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -232,8 +337,8 @@ export const handleRequest = async (
       }
 
       if (request.method === "POST") {
-        const body = await readJsonBody(request);
         const actorWalletAddress = getActorWalletAddress(request);
+        const body = await readAdminJsonBody(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -271,6 +376,7 @@ export const handleRequest = async (
 
       if (request.method === "PUT") {
         const actorWalletAddress = getActorWalletAddress(request);
+        const body = await readAdminJsonBody(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -282,7 +388,7 @@ export const handleRequest = async (
           data: await store.updateCandidate(
             segments[1],
             segments[3],
-            (await readJsonBody(request)) as UpdateCandidateInput,
+            body as UpdateCandidateInput,
             actorWalletAddress,
           ),
         });
@@ -290,6 +396,7 @@ export const handleRequest = async (
 
       if (request.method === "DELETE") {
         const actorWalletAddress = getActorWalletAddress(request);
+        await requireAdminAction(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -315,8 +422,8 @@ export const handleRequest = async (
       }
 
       if (request.method === "POST") {
-        const body = await readJsonBody(request);
         const actorWalletAddress = getActorWalletAddress(request);
+        const body = await readAdminJsonBody(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           segments[1],
@@ -356,6 +463,7 @@ export const handleRequest = async (
       if (request.method === "PUT") {
         const invite = await store.getInvite(segments[1]);
         const actorWalletAddress = getActorWalletAddress(request);
+        await requireAdminAction(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           invite.electionId,
@@ -371,6 +479,7 @@ export const handleRequest = async (
       if (request.method === "DELETE") {
         const invite = await store.getInvite(segments[1]);
         const actorWalletAddress = getActorWalletAddress(request);
+        await requireAdminAction(request, env, actorWalletAddress);
         await requireElectionAdmin(
           store,
           invite.electionId,

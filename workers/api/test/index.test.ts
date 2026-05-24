@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { privateKeyToAccount } from "viem/accounts";
 
 import { createHealthPayload, handleRequest, type Env } from "../src";
+import {
+  createAdminSignatureMessage,
+  hashAdminRequestBody,
+} from "../../../src/admin/admin-auth";
+import { createCandidateMetadataHash } from "../../../src/admin/candidate-metadata";
 import {
   createCandidateMetadataCanonicalJson,
   hashInviteToken,
@@ -15,11 +21,27 @@ const ELECTION_ID =
   "0x1111111111111111111111111111111111111111111111111111111111111111";
 const CANDIDATE_ID =
   "0x2222222222222222222222222222222222222222222222222222222222222222";
-const METADATA_HASH =
+const SECOND_CANDIDATE_ID =
   "0x3333333333333333333333333333333333333333333333333333333333333333";
-const NEXT_METADATA_HASH =
-  "0x4444444444444444444444444444444444444444444444444444444444444444";
+const METADATA_HASH = createCandidateMetadataHash({
+  name: "Alice",
+  photoUrl: "https://example.com/alice.png",
+});
+const NEXT_METADATA_HASH = createCandidateMetadataHash({
+  name: "Alice Updated",
+  photoUrl: "https://example.com/alice.png",
+});
+const SECOND_METADATA_HASH = createCandidateMetadataHash({
+  name: "Bob",
+  photoUrl: "https://example.com/bob.png",
+});
 const NEXT_ADMIN_WALLET = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const SIGNING_ADMIN = privateKeyToAccount(
+  "0x0000000000000000000000000000000000000000000000000000000000000001",
+);
+const OTHER_SIGNING_ADMIN = privateKeyToAccount(
+  "0x0000000000000000000000000000000000000000000000000000000000000002",
+);
 
 class MemoryKV {
   readonly values = new Map<string, string>();
@@ -48,6 +70,7 @@ class MemoryKV {
 }
 
 const createEnv = () => ({
+  ADMIN_SIGNATURE_REQUIRED: "false",
   FRONTEND_ORIGINS: "http://localhost:3000,https://sepolia-voting-system.pages.dev",
   VOTING_METADATA: new MemoryKV() as unknown as KVNamespace,
 }) satisfies Env;
@@ -67,6 +90,36 @@ const requestJson = (
     method,
   });
 
+const signedRequestJson = async (
+  path: string,
+  method: string,
+  body: Record<string, unknown> | undefined,
+  actorWalletAddress: `0x${string}`,
+  signer = SIGNING_ADMIN,
+  issuedAt = new Date().toISOString(),
+) => {
+  const bodyText = body ? JSON.stringify(body) : "";
+  const message = createAdminSignatureMessage({
+    actorWalletAddress,
+    bodyHash: hashAdminRequestBody(bodyText),
+    issuedAt,
+    method,
+    path,
+  });
+  const signature = await signer.signMessage({ message });
+
+  return new Request(`https://api.example.test${path}`, {
+    body: bodyText || undefined,
+    headers: {
+      ...(bodyText ? { "Content-Type": "application/json" } : {}),
+      "X-Actor-Message": encodeURIComponent(message),
+      "X-Actor-Signature": signature,
+      "X-Actor-Wallet": actorWalletAddress,
+    },
+    method,
+  });
+};
+
 const createElectionBody = (overrides: Record<string, unknown> = {}) => ({
   electionId: ELECTION_ID,
   title: "Student Council Election",
@@ -83,6 +136,15 @@ const createCandidateBody = (overrides: Record<string, unknown> = {}) => ({
   photoUrl: "https://example.com/alice.png",
   metadataHash: METADATA_HASH,
   displayOrder: 1,
+  ...overrides,
+});
+
+const createSecondCandidateBody = (overrides: Record<string, unknown> = {}) => ({
+  candidateId: SECOND_CANDIDATE_ID,
+  name: "Bob",
+  photoUrl: "https://example.com/bob.png",
+  metadataHash: SECOND_METADATA_HASH,
+  displayOrder: 2,
   ...overrides,
 });
 
@@ -330,6 +392,75 @@ describe("sepolia voting api", () => {
     expect(wrongActorResponse.status).toBe(403);
   });
 
+  it("requires signed admin requests by default", async () => {
+    const response = await handleRequest(
+      requestJson("/elections", "POST", createElectionBody()),
+      { ...createEnv(), ADMIN_SIGNATURE_REQUIRED: undefined },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Admin signature is required",
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("accepts signed admin requests from the matching wallet", async () => {
+    const adminWalletAddress = SIGNING_ADMIN.address.toLowerCase() as `0x${string}`;
+    const response = await handleRequest(
+      await signedRequestJson(
+        "/elections",
+        "POST",
+        createElectionBody({ adminWalletAddress }),
+        adminWalletAddress,
+      ),
+      { ...createEnv(), ADMIN_SIGNATURE_REQUIRED: undefined },
+    );
+
+    expect(response.status).toBe(201);
+  });
+
+  it("rejects invalid admin signatures without leaking server errors", async () => {
+    const adminWalletAddress = SIGNING_ADMIN.address.toLowerCase() as `0x${string}`;
+    const response = await handleRequest(
+      await signedRequestJson(
+        "/elections",
+        "POST",
+        createElectionBody({ adminWalletAddress }),
+        adminWalletAddress,
+        OTHER_SIGNING_ADMIN,
+      ),
+      { ...createEnv(), ADMIN_SIGNATURE_REQUIRED: undefined },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Admin signature is invalid",
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects expired admin signatures", async () => {
+    const adminWalletAddress = SIGNING_ADMIN.address.toLowerCase() as `0x${string}`;
+    const response = await handleRequest(
+      await signedRequestJson(
+        "/elections",
+        "POST",
+        createElectionBody({ adminWalletAddress }),
+        adminWalletAddress,
+        SIGNING_ADMIN,
+        "2000-01-01T00:00:00.000Z",
+      ),
+      { ...createEnv(), ADMIN_SIGNATURE_REQUIRED: undefined },
+    );
+
+    await expect(response.json()).resolves.toEqual({
+      ok: false,
+      error: "Admin signature has expired",
+    });
+    expect(response.status).toBe(401);
+  });
+
   it("creates, lists, updates, and deletes candidate metadata", async () => {
     const env = createEnv();
     await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
@@ -385,6 +516,14 @@ describe("sepolia voting api", () => {
     expect(updated.data.displayOrder).toBe(3);
     expect(updated.data.metadataHash).toBe(NEXT_METADATA_HASH);
 
+    const mismatchedHashResponse = await handleRequest(
+      requestJson(`/elections/${ELECTION_ID}/candidates/${CANDIDATE_ID}`, "PUT", {
+        metadataHash: METADATA_HASH,
+      }),
+      env,
+    );
+    expect(mismatchedHashResponse.status).toBe(400);
+
     const deleteResponse = await handleRequest(
       new Request(
         `https://api.example.test/elections/${ELECTION_ID}/candidates/${CANDIDATE_ID}`,
@@ -410,6 +549,14 @@ describe("sepolia voting api", () => {
         `/elections/${ELECTION_ID}/candidates`,
         "POST",
         createCandidateBody(),
+      ),
+      env,
+    );
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createSecondCandidateBody(),
       ),
       env,
     );
@@ -457,6 +604,22 @@ describe("sepolia voting api", () => {
     expect(response.status).toBe(400);
   });
 
+  it("rejects candidate metadata hashes that do not match display metadata", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+
+    const response = await handleRequest(
+      requestJson(`/elections/${ELECTION_ID}/candidates`, "POST", {
+        ...createCandidateBody(),
+        metadataHash:
+          "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(400);
+  });
+
   it("rejects candidate display orders outside the indexed range", async () => {
     const env = createEnv();
     await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
@@ -494,6 +657,8 @@ describe("sepolia voting api", () => {
       () => new Date("2098-12-01T00:00:00.000Z"),
     );
     await store.createElection(createElectionBody());
+    await store.createCandidate(ELECTION_ID, createCandidateBody());
+    await store.createCandidate(ELECTION_ID, createSecondCandidateBody());
 
     const { invite, token } = await store.createInvite(ELECTION_ID, {
       createdBy: ADMIN_WALLET,
@@ -529,6 +694,22 @@ describe("sepolia voting api", () => {
   it("uses the request actor for invite routes and rejects non-admin invite writes", async () => {
     const env = createEnv();
     await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createSecondCandidateBody(),
+      ),
+      env,
+    );
 
     const createInviteResponse = await handleRequest(
       requestJson(`/elections/${ELECTION_ID}/invites`, "POST", {
@@ -598,6 +779,29 @@ describe("sepolia voting api", () => {
     ).toBe(ADMIN_WALLET);
   });
 
+  it("rejects invite creation until an election has at least two candidates", async () => {
+    const env = createEnv();
+    await handleRequest(requestJson("/elections", "POST", createElectionBody()), env);
+    await handleRequest(
+      requestJson(
+        `/elections/${ELECTION_ID}/candidates`,
+        "POST",
+        createCandidateBody(),
+      ),
+      env,
+    );
+
+    const response = await handleRequest(
+      requestJson(`/elections/${ELECTION_ID}/invites`, "POST", {
+        createdBy: ADMIN_WALLET,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      }),
+      env,
+    );
+
+    expect(response.status).toBe(409);
+  });
+
   it("marks expired invites as expired before listing or validating them", async () => {
     let currentDate = new Date("2098-12-01T00:00:00.000Z");
     const kv = new MemoryKV();
@@ -606,6 +810,8 @@ describe("sepolia voting api", () => {
       () => currentDate,
     );
     await store.createElection(createElectionBody());
+    await store.createCandidate(ELECTION_ID, createCandidateBody());
+    await store.createCandidate(ELECTION_ID, createSecondCandidateBody());
     const { token } = await store.createInvite(ELECTION_ID, {
       createdBy: ADMIN_WALLET,
       expiresAt: "2099-01-01T00:00:00.000Z",
@@ -634,6 +840,8 @@ describe("sepolia voting api", () => {
     const kv = new MemoryKV();
     const store = new MetadataStore(kv as unknown as KVNamespace);
     await store.createElection(createElectionBody());
+    await store.createCandidate(ELECTION_ID, createCandidateBody());
+    await store.createCandidate(ELECTION_ID, createSecondCandidateBody());
     const { token } = await store.createInvite(ELECTION_ID, {
       createdBy: ADMIN_WALLET,
       expiresAt: "2099-01-01T00:00:00.000Z",
@@ -642,6 +850,8 @@ describe("sepolia voting api", () => {
     const logs = await store.listAuditLogs();
 
     expect(logs.map((log) => log.action).sort()).toEqual([
+      "candidate.create",
+      "candidate.create",
       "election.create",
       "invite.create",
     ]);

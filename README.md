@@ -26,6 +26,8 @@ Run the Worker API locally:
 npm run worker:dev
 ```
 
+When the frontend runs on `localhost` or `127.0.0.1` without `NEXT_PUBLIC_VOTING_API_BASE_URL`, it targets the local Worker at `http://localhost:8787`. Set `NEXT_PUBLIC_VOTING_API_BASE_URL` only when you intentionally want to use another Worker endpoint.
+
 Verify the project:
 
 ```bash
@@ -81,3 +83,9 @@ The key design, record shapes, route list, validation rules, and token storage b
 Phase 4 implements MetaMask wallet readiness in `src/wallet/metamask.ts` and `src/components/wallet-status.tsx`.
 
 The wallet flow checks MetaMask availability, connected account, Sepolia chain ID, network switching, and Sepolia ETH balance guidance. Details are documented in `docs/phase-4.md`.
+
+## Administrator Flow
+
+Phase 5 implements administrator metadata creation in `src/admin/admin-api.ts` and `src/components/admin-dashboard.tsx`.
+
+Administrators can create election metadata, register candidates, and generate invite links through signed Worker API requests. Details are documented in `docs/phase-5.md`.
