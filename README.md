@@ -100,3 +100,9 @@ npm run test
 ```
 
 The contract supports election creation, admin-only candidate registration, one-wallet-one-vote enforcement, period checks, and result reads. Details are documented in `docs/phase-6.md`.
+
+## Voting Flow
+
+Phase 7 implements the invite-based voter page at `/vote?invite=<token>`.
+
+The page validates invite tokens through the Worker API, loads candidate display metadata from KV, checks wallet readiness, and submits `vote(electionId, candidateId)` through MetaMask when `NEXT_PUBLIC_VOTING_CONTRACT_ADDRESS` is configured. Details are documented in `docs/phase-7.md`.

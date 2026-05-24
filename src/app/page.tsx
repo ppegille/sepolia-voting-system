@@ -9,6 +9,7 @@ export default function Home() {
     "Workers KV metadata binding",
     "MetaMask Sepolia wallet readiness",
     "Admin election package creation",
+    "Invite-based voting page",
   ];
 
   return (
@@ -16,21 +17,35 @@ export default function Home() {
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-10 sm:px-10 lg:py-16">
         <div className="rounded-[2rem] border border-cyan-300/20 bg-cyan-300/10 p-6 shadow-2xl shadow-cyan-950/40 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.4em] text-cyan-200">
-            Phase 5 administrator flow
+            Phase 7 voting flow
           </p>
           <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">
             Sepolia voting system administration gateway
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-            The MVP can now connect an administrator wallet, create election
-            metadata, register candidates, and generate invite links before
-            later phases add onchain transactions.
+            The MVP can now create election metadata, generate invite links,
+            and open a voter page where participants choose a candidate and
+            submit the Sepolia vote transaction with MetaMask.
           </p>
         </div>
 
         <WalletStatus />
 
         <AdminDashboard />
+
+        <a
+          className="rounded-3xl border border-violet-300/20 bg-violet-300/10 p-6 transition hover:border-violet-200/50"
+          href="/vote"
+        >
+          <p className="text-sm font-semibold uppercase tracking-[0.35em] text-violet-100">
+            Voter handoff
+          </p>
+          <h2 className="mt-3 text-2xl font-black text-white">Open voting page</h2>
+          <p className="mt-2 text-sm leading-6 text-slate-300">
+            Shared invite links use `/vote?invite=&lt;token&gt;`. Opening `/vote`
+            without a token shows the access restriction state.
+          </p>
+        </a>
 
         <div className="grid gap-4 md:grid-cols-2">
           {setupItems.map((item) => (
