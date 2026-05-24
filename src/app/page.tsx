@@ -1,9 +1,12 @@
+import { WalletStatus } from "../components/wallet-status";
+
 export default function Home() {
   const setupItems = [
     "Next.js App Router frontend",
     "Cloudflare Pages static export",
     "Cloudflare Workers API scaffold",
     "Workers KV metadata binding",
+    "MetaMask Sepolia wallet readiness",
   ];
 
   return (
@@ -11,17 +14,19 @@ export default function Home() {
       <section className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-10 sm:px-10 lg:py-16">
         <div className="rounded-[2rem] border border-cyan-300/20 bg-cyan-300/10 p-6 shadow-2xl shadow-cyan-950/40 sm:p-10">
           <p className="text-sm font-semibold uppercase tracking-[0.4em] text-cyan-200">
-            Phase 1 initialized
+            Phase 4 wallet connection
           </p>
           <h1 className="mt-5 max-w-3xl text-4xl font-black tracking-tight sm:text-6xl">
-            Sepolia voting system foundation
+            Sepolia voting system wallet gateway
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-slate-300">
-            This repository is prepared for a Cloudflare Pages frontend, a
-            Cloudflare Workers API, and Workers KV metadata storage. Onchain
-            voting logic will be added in later phases.
+            The MVP now checks MetaMask availability, wallet connection,
+            Sepolia network readiness, and Sepolia ETH balance before later
+            phases add administrator and voting transactions.
           </p>
         </div>
+
+        <WalletStatus />
 
         <div className="grid gap-4 md:grid-cols-2">
           {setupItems.map((item) => (

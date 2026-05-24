@@ -75,3 +75,9 @@ Phase 2 fixes the frontend-consumable contract interface in `src/contracts/votin
 Phase 3 implements Workers KV metadata records and CRUD-capable Worker API routes in `workers/api/src/metadata.ts` and `workers/api/src/index.ts`.
 
 The key design, record shapes, route list, validation rules, and token storage boundary are documented in `docs/phase-3.md`.
+
+## Wallet Connection
+
+Phase 4 implements MetaMask wallet readiness in `src/wallet/metamask.ts` and `src/components/wallet-status.tsx`.
+
+The wallet flow checks MetaMask availability, connected account, Sepolia chain ID, network switching, and Sepolia ETH balance guidance. Details are documented in `docs/phase-4.md`.
