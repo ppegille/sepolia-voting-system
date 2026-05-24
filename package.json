@@ -2,6 +2,7 @@
   "name": "sepolia-voting-system",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -9,9 +10,10 @@
     "pages:deploy": "npm run build && wrangler pages deploy out --project-name sepolia-voting-system",
     "worker:dev": "wrangler dev --config workers/api/wrangler.jsonc",
     "worker:deploy": "wrangler deploy --config workers/api/wrangler.jsonc",
+    "contract:build": "hardhat build",
     "typecheck": "tsc --noEmit && tsc -p workers/api/tsconfig.json --noEmit",
     "lint": "eslint",
-    "test": "vitest run",
+    "test": "npm run contract:build && vitest run",
     "verify": "npm run typecheck && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
@@ -26,12 +28,15 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260519.1",
+    "@nomicfoundation/hardhat-network-helpers": "^3.0.9",
+    "@nomicfoundation/hardhat-viem": "^3.0.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "hardhat": "^3.5.1",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^4.1.6",

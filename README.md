@@ -89,3 +89,14 @@ The wallet flow checks MetaMask availability, connected account, Sepolia chain I
 Phase 5 implements administrator metadata creation in `src/admin/admin-api.ts` and `src/components/admin-dashboard.tsx`.
 
 Administrators can create election metadata, register candidates, and generate invite links through signed Worker API requests. Details are documented in `docs/phase-5.md`.
+
+## Smart Contract
+
+Phase 6 implements the local Solidity voting contract in `contracts/SepoliaVoting.sol` with Hardhat-based compilation and Vitest contract tests.
+
+```bash
+npm run contract:build
+npm run test
+```
+
+The contract supports election creation, admin-only candidate registration, one-wallet-one-vote enforcement, period checks, and result reads. Details are documented in `docs/phase-6.md`.
